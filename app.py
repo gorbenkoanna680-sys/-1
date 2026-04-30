@@ -1,110 +1,130 @@
-import streamlit as st 
+import streamlit as st
 import pandas as pd
 import time
+import random
 from scapy.all import IP, TCP, send
 
-# --- Налаштування сторінки ---
+# --- CONFIG ---
 st.set_page_config(
-    page_title="DoS Attack Simulator",
+    page_title="Cyber Security Dashboard",
     layout="wide",
     page_icon="🛡️"
 )
 
-# --- Кастомні стилі ---
+# --- STYLES ---
 st.markdown("""
-    <style>
-    .main {
-        background: linear-gradient(135deg, #0f172a, #1e293b);
-        color: #e2e8f0;
-    }
+<style>
+.main {
+    background: linear-gradient(135deg, #020617, #0f172a);
+    color: #e2e8f0;
+}
 
-    h1, h2, h3 {
-        color: #f8fafc;
-    }
+.card {
+    background: rgba(255,255,255,0.05);
+    padding: 20px;
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 0 25px rgba(0,0,0,0.4);
+    transition: 0.3s;
+}
+.card:hover {
+    transform: translateY(-4px);
+}
 
-    .block-container {
-        padding-top: 2rem;
-    }
-
-    .card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(12px);
-        border-radius: 16px;
-        padding: 20px;
-        box-shadow: 0 8px 30px rgba(0,0,0,0.3);
-        transition: 0.3s ease;
-    }
-
-    .card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-    }
-
-    .stButton>button {
-        border-radius: 12px;
-        padding: 10px 18px;
-        font-weight: 600;
-        transition: 0.3s;
-    }
-
-    .stButton>button:hover {
-        transform: scale(1.05);
-    }
-
-    </style>
+.stMetric {
+    background: rgba(255,255,255,0.03);
+    padding: 10px;
+    border-radius: 12px;
+}
+</style>
 """, unsafe_allow_html=True)
 
-# --- Заголовок ---
-st.title("🛡️ Моделювання DoS-атаки")
-st.caption("Симуляція навантаження та аналіз мережевих метрик у реальному часі")
+# --- HEADER ---
+st.title("🛡️ Cyber Security Monitoring Dashboard")
+st.caption("Моніторинг мережевої активності та симуляція DoS-атаки")
 
-# --- Sidebar ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("⚙️ Параметри атаки")
+    st.header("⚙️ Налаштування")
 
-    target_ip = st.text_input("IP-адреса цілі", "127.0.0.1")
-    port = st.number_input("Порт", value=80)
-    intensity = st.slider("Інтенсивність (пакетів/сек)", 1, 100, 10)
+    target_ip = st.text_input("Target IP", "127.0.0.1")
+    port = st.number_input("Port", value=80)
+    intensity = st.slider("Інтенсивність", 1, 100, 10)
 
-# --- Session state ---
-if 'stats' not in st.session_state:
-    st.session_state.stats = pd.DataFrame(columns=['Time', 'Latency'])
+    st.markdown("---")
+    st.subheader("📡 Стан системи")
+    system_status = st.radio("Статус:", ["🟢 Норма", "🟡 Підозра", "🔴 Атака"])
 
-# --- Функція атаки ---
+# --- STATE ---
+if "stats" not in st.session_state:
+    st.session_state.stats = pd.DataFrame(columns=["Time", "Latency"])
+
+if "logs" not in st.session_state:
+    st.session_state.logs = []
+
+# --- ATTACK FUNCTION ---
 def run_attack(ip, dport):
     packet = IP(dst=ip)/TCP(dport=dport, flags="S")
     send(packet, verbose=False)
 
-# --- Layout ---
-col1, col2 = st.columns([1, 2], gap="large")
+# --- TOP METRICS ---
+col1, col2, col3, col4 = st.columns(4)
 
-# --- КЕРУВАННЯ ---
 with col1:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("🎛️ Керування")
+    st.metric("📦 Пакети/сек", intensity)
 
-    btn_start = st.button("🚀 Запустити атаку", use_container_width=True)
-    btn_stop = st.button("🛑 Зупинити", use_container_width=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# --- МЕТРИКИ ---
 with col2:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("📈 Метрики в реальному часі")
+    st.metric("⏱️ Затримка", f"{random.randint(20,120)} ms")
 
-    chart_placeholder = st.empty()
+with col3:
+    st.metric("🚨 Загрози", len(st.session_state.logs))
+
+with col4:
+    st.metric("🌐 Активні IP", random.randint(1, 20))
+
+st.markdown("---")
+
+# --- MAIN LAYOUT ---
+left, right = st.columns([2, 1], gap="large")
+
+# --- GRAPH ---
+with left:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("📈 Мережеві метрики")
+
+    chart = st.empty()
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- ЛОГІКА ---
-if btn_start:
-    st.toast(f"Атака на {target_ip} запущена", icon="⚡")
+# --- CONTROL PANEL ---
+with right:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("🎛️ Управління")
 
-    for i in range(10):
+    start = st.button("🚀 Start Attack", use_container_width=True)
+    stop = st.button("🛑 Stop", use_container_width=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("📜 Логи подій")
+
+    log_box = st.empty()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- LOGIC ---
+if start:
+    st.toast("Атака запущена ⚡")
+
+    for i in range(15):
+        latency = 20 + i * intensity + random.randint(0, 30)
+
         new_data = pd.DataFrame({
-            'Time': [time.strftime("%H:%M:%S")],
-            'Latency': [20 + (i * intensity)]
+            "Time": [time.strftime("%H:%M:%S")],
+            "Latency": [latency]
         })
 
         st.session_state.stats = pd.concat(
@@ -112,22 +132,31 @@ if btn_start:
             ignore_index=True
         )
 
-        chart_placeholder.line_chart(
-            st.session_state.stats.set_index('Time'),
+        # --- LOG GENERATION ---
+        if latency > 100:
+            event = f"🚨 HIGH LATENCY DETECTED: {latency} ms"
+            st.session_state.logs.append(event)
+
+        # --- UPDATE GRAPH ---
+        chart.line_chart(
+            st.session_state.stats.set_index("Time"),
             use_container_width=True
         )
+
+        # --- UPDATE LOGS ---
+        log_box.write(st.session_state.logs[-5:])
 
         # run_attack(target_ip, port)
         time.sleep(0.5)
 
-    st.success("✅ Експеримент завершено. Дані зібрано.")
+    st.success("Атака завершена")
 
-# --- ЕКСПОРТ ---
+# --- DOWNLOAD ---
 st.markdown("---")
 st.download_button(
-    label="📊 Завантажити результати (CSV)",
-    data=st.session_state.stats.to_csv().encode('utf-8'),
-    file_name='dos_results.csv',
-    mime='text/csv',
+    "📊 Завантажити CSV",
+    st.session_state.stats.to_csv().encode("utf-8"),
+    "report.csv",
+    "text/csv",
     use_container_width=True
 )
