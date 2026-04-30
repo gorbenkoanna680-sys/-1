@@ -3,7 +3,6 @@ import pandas as pd
 import time
 import random
 from sklearn.ensemble import IsolationForest
-from scapy.all import sniff
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 import requests
@@ -13,7 +12,7 @@ USER = "admin"
 PASS = "1234"
 
 def login():
-    st.title("🔐 Login")
+    st.title("🔐 CyberSOC Login")
     username = st.text_input("Login")
     password = st.text_input("Password", type="password")
 
@@ -31,21 +30,23 @@ if not st.session_state.auth:
     st.stop()
 
 # ---------------- CONFIG ----------------
-st.set_page_config(page_title="CyberSOC", layout="wide")
-st.title("🛡️ CyberSOC Dashboard")
+st.set_page_config(page_title="CyberSOC Cloud", layout="wide")
+st.title("🛡️ CyberSOC Dashboard (Cloud Version)")
+st.caption("Симуляція трафіку + ML аналіз аномалій")
 
 # ---------------- TELEGRAM ----------------
-TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"
-CHAT_ID = "YOUR_CHAT_ID"
+TELEGRAM_TOKEN = st.secrets.get("TELEGRAM_TOKEN", "")
+CHAT_ID = st.secrets.get("CHAT_ID", "")
 
 def send_telegram(msg):
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            data={"chat_id": CHAT_ID, "text": msg}
-        )
-    except:
-        pass
+    if TELEGRAM_TOKEN and CHAT_ID:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                data={"chat_id": CHAT_ID, "text": msg}
+            )
+        except:
+            pass
 
 # ---------------- STATE ----------------
 if "data" not in st.session_state:
@@ -54,58 +55,81 @@ if "data" not in st.session_state:
 if "logs" not in st.session_state:
     st.session_state.logs = []
 
-# ---------------- ML MODEL ----------------
+# ---------------- SIDEBAR ----------------
+with st.sidebar:
+    st.header("⚙️ Налаштування")
+
+    intensity = st.slider("Інтенсивність трафіку", 1, 100, 10)
+    sensitivity = st.slider("Чутливість IDS", 1, 100, 50)
+
+# ---------------- ML ----------------
 model = IsolationForest(contamination=0.1)
 
-# ---------------- PACKET SNIFF ----------------
-def process_packet(pkt):
-    latency = random.randint(20, 200)  # імітація
-    st.session_state.data.loc[len(st.session_state.data)] = [latency]
+def detect_anomaly():
+    if len(st.session_state.data) > 10:
+        model.fit(st.session_state.data)
+        preds = model.predict(st.session_state.data)
+
+        if preds[-1] == -1:
+            latency = st.session_state.data.iloc[-1][0]
+            msg = f"🚨 Аномалія: latency {latency} ms"
+
+            st.session_state.logs.append(msg)
+            send_telegram(msg)
+
+# ---------------- METRICS ----------------
+m1, m2, m3, m4 = st.columns(4)
+
+m1.metric("📦 Traffic", f"{intensity * random.randint(5,15)} pkt/s")
+m2.metric("⏱ Latency", f"{random.randint(20,150)} ms")
+m3.metric("🚨 Alerts", len(st.session_state.logs))
+m4.metric("🌐 Active IP", random.randint(5, 50))
+
+st.markdown("---")
 
 # ---------------- UI ----------------
-col1, col2, col3 = st.columns(3)
+left, right = st.columns([2, 1])
 
-col1.metric("📦 Traffic", random.randint(50, 500))
-col2.metric("⏱ Latency", random.randint(20, 200))
-col3.metric("🚨 Alerts", len(st.session_state.logs))
+with left:
+    st.subheader("📈 Network Activity")
+    chart = st.empty()
 
-start = st.button("🚀 Start Monitoring")
+with right:
+    start = st.button("🚀 Start Monitoring", use_container_width=True)
+    stop = st.button("🛑 Stop", use_container_width=True)
 
-chart = st.empty()
-logs_box = st.empty()
+    st.subheader("📜 Logs")
+    log_box = st.empty()
 
-# ---------------- MAIN ----------------
+# ---------------- MAIN LOOP ----------------
 if start:
     st.success("Моніторинг запущено")
 
     for i in range(30):
+        latency = 20 + i * intensity + random.randint(0, 40)
 
-        # sniff пакетів (обмежено 1 пакет)
-        sniff(prn=process_packet, count=1, store=0)
+        new_data = pd.DataFrame({"latency": [latency]})
+        st.session_state.data = pd.concat(
+            [st.session_state.data, new_data],
+            ignore_index=True
+        )
 
-        if len(st.session_state.data) > 10:
-            model.fit(st.session_state.data)
-            preds = model.predict(st.session_state.data)
-
-            if preds[-1] == -1:
-                msg = f"🚨 Anomaly detected: {st.session_state.data.iloc[-1][0]}"
-                st.session_state.logs.append(msg)
-
-                send_telegram(msg)
+        detect_anomaly()
 
         chart.line_chart(st.session_state.data)
 
-        logs_box.write(st.session_state.logs[-5:])
+        log_box.write(st.session_state.logs[-6:])
 
-        time.sleep(0.3)
+        time.sleep(0.4)
 
-# ---------------- PDF REPORT ----------------
+    st.success("Моніторинг завершено")
+
+# ---------------- PDF ----------------
 def generate_pdf():
     doc = SimpleDocTemplate("report.pdf")
     styles = getSampleStyleSheet()
 
-    content = []
-    content.append(Paragraph("CyberSOC Report", styles["Title"]))
+    content = [Paragraph("CyberSOC Report", styles["Title"])]
 
     for log in st.session_state.logs:
         content.append(Paragraph(log, styles["Normal"]))
@@ -114,5 +138,6 @@ def generate_pdf():
 
 if st.button("🧾 Generate PDF"):
     generate_pdf()
+
     with open("report.pdf", "rb") as f:
         st.download_button("📥 Download PDF", f, "report.pdf")
