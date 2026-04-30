@@ -1,4 +1,5 @@
-scapy
-pandas
-matplotlib
 streamlit
+pandas
+scikit-learn
+reportlab
+requests
