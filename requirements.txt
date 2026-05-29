@@ -1,5 +1,7 @@
 streamlit
 pandas
+networkx
+matplotlib
 scikit-learn
 reportlab
 requests
