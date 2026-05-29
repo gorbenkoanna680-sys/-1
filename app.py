@@ -8,7 +8,7 @@ import random
 # Налаштування сторінки
 st.set_page_config(page_title="CyberSOC Graph Edition", layout="wide")
 
-# Стилізація інтерфейсу
+# Стилізація інтерфейсу під темну тему SOC
 st.markdown("""
 <style>
 .main { background: linear-gradient(135deg, #020617, #0f172a); color: #e2e8f0; }
@@ -46,64 +46,76 @@ def create_base_network():
     G.add_weighted_edges_from(edges)
     return G
 
-# Ініціалізація стану сесії для логів та статистики затримок
+# Ініціалізація стану сесії для логів, графіків та режимів
 if "logs" not in st.session_state:
     st.session_state.logs = ["Систему ініціалізовано. Мережа функціонує в штатному режимі."]
 if "stats" not in st.session_state:
     st.session_state.stats = pd.DataFrame(columns=["Time", "Latency"])
 if "last_attack" not in st.session_state:
     st.session_state.last_attack = "Нормальний режим (Без атак)"
+if "simulation_active" not in st.session_state:
+    st.session_state.simulation_active = False
 
 # ----------------- БІЧНА ПАНЕЛЬ КЕРУВАННЯ -----------------
 with st.sidebar:
     st.header("⚙️ Налаштування симуляції")
     
-    # Вибір типу відмови/атаки
+    # Вибір типу відмови/атаки (Пункт 9 зауважень - selectbox)
     attack_type = st.selectbox("Тип впливу / Атаки:", [
         "Нормальний режим (Без атак)",
         "Сценарій 1: DoS на Web Server",
         "Сценарій 2: Перевантаження Router-1",
         "Сценарій 3: Відключення Firewall",
-        "Сценарій 4: Rozryv каналу зв'язку"
+        "Сценарій 4: Розрив каналу зв'язку"
     ])
     
+    # Слайдер для інтенсивності (Пункт 9 зауважень - slider)
     intensity = st.slider("Інтенсивність атаки (Traffic Load)", 1, 100, 10)
+    
     st.markdown("---")
     st.subheader("🧠 Налаштування IDS")
     sensitivity = st.slider("Чутливість виявлення аномалій", 1, 100, 50)
     
     st.markdown("---")
-    st.info("💡 Інтерфейс адаптивний. Зміна параметрів вище миттєво перебудовує граф мережі!")
+    # Кнопки старту/стопу симуляції динамічного потоку даних
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🚀 Запустити", use_container_width=True):
+            st.session_state.simulation_active = True
+    with col_btn2:
+        if st.button("🛑 Зупинити", use_container_width=True):
+            st.session_state.simulation_active = False
 
 # ----------------- МОДЕЛЮВАННЯ ВПЛИВУ АТАК НА ГРАФ -----------------
 G = create_base_network()
 current_log_event = None
+noise = random.randint(-3, 3) if st.session_state.simulation_active else 0
 
 # Динамічно змінюємо ваги або структуру графа залежно від вибору користувача
 if attack_type == "Сценарій 1: DoS на Web Server":
-    extra_delay = intensity * 5
+    extra_delay = intensity * 5 + noise
     G.nodes["Web Server"]["status"] = "overloaded"
     for neighbor in G.neighbors("Web Server"):
         G["Web Server"][neighbor]["weight"] += extra_delay
     current_log_event = f"🚨 ALERT: Зафіксовано DoS-атаку на Web Server! Затримка зросла на +{extra_delay} мс."
 
 elif attack_type == "Сценарій 2: Перевантаження Router-1":
-    extra_delay = intensity * 10
+    extra_delay = intensity * 10 + noise
     G.nodes["Router-1"]["status"] = "overloaded"
     for neighbor in G.neighbors("Router-1"):
         G["Router-1"][neighbor]["weight"] += extra_delay
-    current_log_event = f"⚠️ WARNING: Router-1 перевантажено аномальним трафіком (+{extra_delay} мс). Маршрутизація ускладнена."
+    current_log_event = f"⚠️ WARNING: Router-1 перевантажено аномальним трафіком. Маршрутизація змінена."
 
 elif attack_type == "Сценарій 3: Відключення Firewall":
     G.remove_node("Firewall")
     current_log_event = "🔥 CRITICAL: Firewall повністю вимкнено / атаковано! Граф мережі розпався."
 
-elif attack_type == "Сценарій 4: Rozryv каналу зв'язку":
+elif attack_type == "Сценарій 4: Розрив каналу зв'язку":
     if G.has_edge("Switch", "Router-1"):
         G.remove_edge("Switch", "Router-1")
     current_log_event = "❌ ALERT: Фізичний розрив магістрального каналу 'Switch <--> Router-1'."
 
-# Додаємо запис до журналу ТІЛЬКИ якщо користувач дійсно перемкнув атаку, щоб уникнути дублювання при кожному ворушінні повзунка
+# Логування подій при зміні типу атаки в сесії
 if attack_type != st.session_state.last_attack:
     if current_log_event:
         st.session_state.logs.append(current_log_event)
@@ -134,9 +146,11 @@ if "Client" in G and "Web Server" in G:
     except nx.NetworkXNoPath:
         has_path = False
 
-# Автоматичне додавання поточної затримки до історії графіку (без жодних кнопок!)
-new_stat = pd.DataFrame({"Time": [time.strftime("%H:%M:%S")], "Latency": [path_latency if has_path else 0]})
-st.session_state.stats = pd.concat([st.session_state.stats, new_stat], ignore_index=True).tail(30) # тримаємо останні 30 точок
+# Запис точок затримки для динамічного графіка
+if st.session_state.simulation_active:
+    actual_latency = path_latency if has_path else 0
+    new_stat = pd.DataFrame({"Time": [time.strftime("%H:%M:%S")], "Latency": [actual_latency]})
+    st.session_state.stats = pd.concat([st.session_state.stats, new_stat], ignore_index=True).tail(20)
 
 # ----------------- ВІДОБРАЖЕННЯ ВІДЖЕТІВ ТА МЕТРИК -----------------
 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -157,50 +171,92 @@ with col_char2:
     st.write(f"**Середній ступінь вершин графа:** {avg_degree:.2f}")
     st.write(f"**Цілісність топології:** " + ("Мережа сегментована DoS-атакою" if components > 1 else "Мережа зв'язна та стабільна"))
 with col_char3:
-    st.write("**Центральність вузлів за посередництвом (Betweenness Centrality):**")
+    st.write("**Центральність вузлів (Betweenness Centrality):**")
     for node, cent in centrality.items():
         st.write(f"- {node}: `{cent:.3f}`")
 
 st.markdown("---")
 
-# ----------------- ВІЗУАЛІЗАЦІЯ ГРАФА ТА ЖУРНАЛУ ПОДІЙ -----------------
-left_col, right_col = st.columns([2, 1])
+# ----------------- ВІЗУАЛІЗАЦІЯ ГРАФА ТА ГРАФІКА ЗАТРИМОК -----------------
+left_col, right_col = st.columns([1, 1])
 
 with left_col:
-    st.subheader("🌐 Візуалізація топології та динамічних змін")
-    
+    st.subheader("🌐 Візуалізація топології мережі")
     if num_nodes > 0:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        # Фіксовані просторові координати для збереження структури топології
+        fig, ax = plt.subplots(figsize=(8, 5))
         fixed_pos = {
-            "Client": (0, 1),
-            "Switch": (1, 1),
-            "Router-1": (2, 2),
-            "Router-2": (2, 0),
-            "Firewall": (3, 1),
-            "Web Server": (4, 1)
+            "Client": (0, 1), "Switch": (1, 1), "Router-1": (2, 2),
+            "Router-2": (2, 0), "Firewall": (3, 1), "Web Server": (4, 1)
         }
         pos = {node: fixed_pos[node] for node in G.nodes()}
         
-        # Визначаємо колір для кожного вузла залежно від його поточного стану
         node_colors = []
         for node in G.nodes():
             if G.nodes[node].get("status") == "overloaded":
-                node_colors.append("#ef4444")  # Червоний: атакований/перевантажений
+                node_colors.append("#ef4444")  # Червоний: атакований
             elif node in path_nodes:
-                node_colors.append("#22c55e")  # Зелений: вузол бере участь у поточному маршруті
+                node_colors.append("#22c55e")  # Зелений: активний шлях
             else:
-                node_colors.append("#3b82f6")  # Синій: штатний режим роботи
+                node_colors.append("#3b82f6")  # Синій: норма
         
-        # Малювання вузлів та міток
-        nx.draw_networkx_nodes(G, pos, node_size=1400, node_color=node_colors, ax=ax)
-        nx.draw_networkx_labels(G, pos, font_color="white", font_weight="bold", font_size=10, ax=ax)
+        nx.draw_networkx_nodes(G, pos, node_size=1200, node_color=node_colors, ax=ax)
+        nx.draw_networkx_labels(G, pos, font_color="white", font_weight="bold", font_size=9, ax=ax)
         
-        # Підсвічування ліній зв'язку, які входять у найкоротший шлях Дейкстри
         edge_colors = []
         edge_widths = []
         path_edges = list(zip(path_nodes, path_nodes[1:])) if has_path else []
         
         for u, v in G.edges():
-            if (
+            if (u, v) in path_edges or (v, u) in path_edges:
+                edge_colors.append("#22c55e")
+                edge_widths.append(4)
+            else:
+                edge_colors.append("#64748b")
+                edge_widths.append(2)
+                
+        nx.draw_networkx_edges(G, pos, width=edge_widths, edge_color=edge_colors, ax=ax)
+        edge_labels = nx.get_edge_attributes(G, 'weight')
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8, ax=ax)
+        
+        fig.patch.set_facecolor('#0f172a')
+        ax.set_facecolor('#0f172a')
+        plt.axis('off')
+        st.pyplot(fig)
+
+with right_col:
+    st.subheader("📈 Динаміка мережевої затримки (IDS Дашборд)")
+    if not st.session_state.stats.empty:
+        # Відображення лінійного графіка зміни Latency в часі (як на скріншоті)
+        st.line_chart(st.session_state.stats.set_index("Time"), y_label="Latency (ms)")
+    else:
+        st.info("Натисніть кнопку '🚀 Запустити' для початку збору метрик часу.")
+
+st.markdown("---")
+
+# ----------------- ЛОГИ ТА СТАТУС IDS -----------------
+col_b1, col_b2 = st.columns([2, 1])
+with col_b1:
+    st.subheader("📜 Журнал подій Системи IDS/SOC")
+    for log in st.session_state.logs[-6:][::-1]:
+        st.write(log)
+with col_b2:
+    st.subheader("🚨 Статус безпеки")
+    threshold = 50 + sensitivity
+    if has_path and path_latency > threshold:
+        st.error(f"ALERT: Аномальна затримка ({path_latency} мс)!")
+    elif not has_path:
+        st.error("CRITICAL: Вебсервер недоступний (Розрив зв'язку/DoS)!")
+    else:
+        st.success("IDS: Система працює стабільно.")
+
+# Експорт звіту
+st.download_button(
+    "📊 Експорт журналу SOC у CSV",
+    pd.DataFrame(st.session_state.logs, columns=["SOC_Incident_Log"]).to_csv().encode("utf-8"),
+    "cyber_graph_soc_report.csv", "text/csv", use_container_width=True
+)
+
+# Функція автоматичного циклічного перерендеру сторінки (щоб графік рухався самостійно)
+if st.session_state.simulation_active:
+    time.sleep(0.5)
+    st.rerun()
